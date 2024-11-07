@@ -1,10 +1,11 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-//using UnityEditor;
-using UnityEngine.Events;
 
-public class Fish_Boss : MonoBehaviour {
+public class Fish_Boss : MonoBehaviour
+{
+    private enum BossState { Idle, Jumping, Spitting, Recovering }
+    private BossState currentState = BossState.Idle;
 
     private bool attacking = false;
     private Transform attack_point;
@@ -24,137 +25,148 @@ public class Fish_Boss : MonoBehaviour {
     public float spit_speed = 3.0f;
 
     private bool spitAttack = false;
+    public ParticleSystem jumpEffect;
+    public ParticleSystem spitEffect;
+    public Animator animator;
+
     void Update()
     {
-        if (attacking == true)
+        switch (currentState)
         {
-            if (Vector3.Distance(this.transform.position, attack_point.position) <= 0.1f)
-            {
-                attacking = false;
-                timer = 0;
-            }
-            else
-            {
-                timer += Time.deltaTime;
-                Vector3 cur_pos = Vector3.Lerp(start_pos, attack_point.position, timer / jump_speed);
-                cur_pos.y += jump_height * Mathf.Sin(Mathf.Clamp01(timer / jump_speed) * Mathf.PI);
-                transform.position = cur_pos;
-                if (Vector3.Distance(transform.position, attack_point.position) < 0.05f)
-                {
-                    attacking = false;
-                    PlayWaterLand();
-                }
-                Quaternion targetRotation = Quaternion.LookRotation(look_at.transform.position - transform.position);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, timer / jump_speed);
-            }
-        }
-        if (spitAttack == true)
-        {
-            if (Vector3.Distance(this.transform.position, attack_point.position) <= 0.1f)
-            {
-                spitAttack = false;
-                timer = 0;
-            }
-            else
-            {
-                timer += Time.deltaTime;
-                Vector3 cur_pos = Vector3.Lerp(start_pos, attack_point.position, timer / jump_speed);
-                transform.position = cur_pos;
-                if (Vector3.Distance(transform.position, attack_point.position) < 0.05f)
-                {
-                    spitAttack = false;
-                    StartCoroutine(WaitSpitAttack());
-                }
-                Quaternion targetRotation = Quaternion.LookRotation(look_at.transform.position - transform.position);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, timer / jump_speed);
-            }
+            case BossState.Jumping:
+                HandleJumping();
+                break;
+            case BossState.Spitting:
+                HandleSpitting();
+                break;
+            case BossState.Recovering:
+                // Add logic for recovery period if needed
+                break;
+            default:
+                break;
         }
     }
+
+    private void HandleJumping()
+    {
+        if (Vector3.Distance(transform.position, attack_point.position) <= 0.1f)
+        {
+            EndAttack();
+            PlayWaterLand();
+        }
+        else
+        {
+            timer += Time.deltaTime;
+            Vector3 cur_pos = Vector3.Lerp(start_pos, attack_point.position, timer / jump_speed);
+            cur_pos.y += jump_height * Mathf.Sin(Mathf.Clamp01(timer / jump_speed) * Mathf.PI);
+            transform.position = cur_pos;
+            Quaternion targetRotation = Quaternion.LookRotation(look_at.transform.position - transform.position);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, timer / jump_speed);
+        }
+    }
+
+    private void HandleSpitting()
+    {
+        if (Vector3.Distance(transform.position, attack_point.position) <= 0.1f)
+        {
+            EndAttack();
+            StartCoroutine(WaitSpitAttack());
+        }
+        else
+        {
+            timer += Time.deltaTime;
+            Vector3 cur_pos = Vector3.Lerp(start_pos, attack_point.position, timer / jump_speed);
+            transform.position = cur_pos;
+            Quaternion targetRotation = Quaternion.LookRotation(look_at.transform.position - transform.position);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, timer / jump_speed);
+        }
+    }
+
+    private void EndAttack()
+    {
+        attacking = false;
+        timer = 0;
+        currentState = BossState.Recovering;
+        animator.SetTrigger("Land");
+    }
+
     public void MakeJumpAttack(GameObject start, List<GameObject> attack_points)
     {
-        List<GameObject> tempList = new List<GameObject>();
-        foreach (GameObject item in attack_points)
-        {
-            tempList.Add(item);
-        }
-        tempList.Remove(start);
-        attack_point = tempList[Random.Range(0, tempList.Count-1)].transform;
-        start_pos = transform.position;
+        SetupAttack(start, attack_points);
         attacking = true;
-        timer = 0;
+        currentState = BossState.Jumping;
         PlayWaterSplash();
-        int prob = Random.Range(0, yell_prob+1);
-        if (prob == yell_prob)
-        {
-            PlayYell();
-        }
+        animator.SetTrigger("Jump");
+        jumpEffect?.Play();
+        TryPlayYell();
     }
+
     public void SpitAttack(GameObject start, List<GameObject> attack_points)
     {
-        List<GameObject> tempList = new List<GameObject>();
-        foreach (GameObject item in attack_points)
-        {
-            tempList.Add(item);
-        }
-        tempList.Remove(start);
-        attack_point = tempList[Random.Range(0, tempList.Count-1)].transform;
-        start_pos = transform.position;
+        SetupAttack(start, attack_points);
         spitAttack = true;
-        timer = 0;
+        currentState = BossState.Spitting;
         PlayWaterSplash();
-        int prob = Random.Range(0, yell_prob+1);
+        animator.SetTrigger("Spit");
+        spitEffect?.Play();
+        TryPlayYell();
+    }
+
+    private void SetupAttack(GameObject start, List<GameObject> attack_points)
+    {
+        List<GameObject> tempList = new List<GameObject>(attack_points);
+        tempList.Remove(start);
+        attack_point = tempList[Random.Range(0, tempList.Count)].transform;
+        start_pos = transform.position;
+        timer = 0;
+    }
+
+    private void TryPlayYell()
+    {
+        int prob = Random.Range(0, yell_prob + 1);
         if (prob == yell_prob)
         {
             PlayYell();
         }
     }
 
-    GameObject GetClosest(GameObject[] points)
-    {
-        GameObject final = null;
-        float closet = UnityEngine.Mathf.Infinity;
-        for (int i=0; i < points.Length; i++)
-        {
-            if (final == null)
-            {
-                final = points[i];
-            }
-            else
-            {
-                UnityEngine.Vector3 direction = points[i].transform.position - final.transform.position;
-                float sqrToTarget = direction.sqrMagnitude;
-                if (sqrToTarget < closet)
-                {
-                    closet = sqrToTarget;
-                    final = points[i];
-                }
-            }
-        }
-        return final;
-    }
-       
     IEnumerator WaitSpitAttack()
     {
-        yield return new WaitForSeconds(Random.Range(0.5f,1.0f));
-        GameObject spit = (GameObject)Instantiate(spit_attack_item, spit_attack_point.position, spit_attack_point.rotation);
+        yield return new WaitForSeconds(Random.Range(0.5f, 1.0f));
+        GameObject spit = Instantiate(spit_attack_item, spit_attack_point.position, spit_attack_point.rotation);
         GameObject player = GameObject.FindGameObjectWithTag("PlayerCamera");
         if (spit.GetComponent<Rigidbody>())
-            spit.GetComponent<Rigidbody>().AddForce((player.transform.position - spit_attack_point.position) * spit_speed);
+        {
+            Vector3 direction = (player.transform.position - spit_attack_point.position).normalized;
+            spit.GetComponent<Rigidbody>().AddForce(direction * spit_speed, ForceMode.Impulse);
+        }
         Destroy(spit, 3.0f);
     }
+
     void PlayWaterSplash()
     {
-        sSource.clip = water_splash[Random.Range(0, water_splash.Length)];
-        sSource.Play();
+        if (sSource != null && water_splash.Length > 0)
+        {
+            sSource.clip = water_splash[Random.Range(0, water_splash.Length)];
+            sSource.Play();
+        }
     }
+
     void PlayWaterLand()
     {
-        sSource.clip = water_land[Random.Range(0, water_land.Length)];
-        sSource.Play();
+        if (sSource != null && water_land.Length > 0)
+        {
+            sSource.clip = water_land[Random.Range(0, water_land.Length)];
+            sSource.Play();
+        }
     }
+
     public void PlayYell()
     {
-        sSource.clip = yells[Random.Range(0, yells.Length)];
-        sSource.Play();
+        if (sSource != null && yells.Length > 0)
+        {
+            sSource.clip = yells[Random.Range(0, yells.Length)];
+            sSource.Play();
+        }
     }
 }
